@@ -1,0 +1,68 @@
+{
+  "as_of": "2026-06-27",
+  "universe_size": 8,
+  "eligible_count": 3,
+  "params": {
+    "min_market_cap_usd": 50000000,
+    "excluded_sectors": [
+      "Financial Services",
+      "Utilities"
+    ]
+  },
+  "stocks": [
+    {
+      "ticker": "GOODA",
+      "name": "Alpha Corp",
+      "sector": "Technology",
+      "industry": "Software",
+      "magic_rank": 1,
+      "roc": 0.5,
+      "earnings_yield": 2e-06,
+      "rank_roc": 1,
+      "rank_ey": 1,
+      "combined_rank": 2,
+      "price": 100.0,
+      "currency": "USD",
+      "market_cap": 100000000.0,
+      "ebit": 200.0,
+      "enterprise_value": 100000050.0,
+      "fiscal_year": 2025
+    },
+    {
+      "ticker": "GOODB",
+      "name": "Bravo Inc",
+      "sector": "Technology",
+      "industry": "Software",
+      "magic_rank": 2,
+      "roc": 0.4,
+      "earnings_yield": 1e-06,
+      "rank_roc": 2,
+      "rank_ey": 2,
+      "combined_rank": 4,
+      "price": 80.0,
+      "currency": "USD",
+      "market_cap": 400000000.0,
+      "ebit": 600.0,
+      "enterprise_value": 400000200.0,
+      "fiscal_year": 2025
+    },
+    {
+      "ticker": "GOODC",
+      "name": "Charlie Ltd",
+      "sector": "Technology",
+      "industry": "Hardware",
+      "magic_rank": 3,
+      "roc": 0.346154,
+      "earnings_yield": 1e-06,
+      "rank_roc": 3,
+      "rank_ey": 3,
+      "combined_rank": 6,
+      "price": 60.0,
+      "currency": "USD",
+      "market_cap": 120000000.0,
+      "ebit": 90.0,
+      "enterprise_value": 119999950.0,
+      "fiscal_year": 2025
+    }
+  ]
+}

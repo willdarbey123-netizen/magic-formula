@@ -1,0 +1,6 @@
+# Magic Formula pipeline dependencies.
+#
+# Verified at build time against simfin 1.0.2 + pandas 3.0.2. simfin's data-load
+# path uses only modern-pandas-safe calls, so pandas 2.2+ (including 3.x) works.
+simfin>=1.0.2
+pandas>=2.2

@@ -1,0 +1,7 @@
+This folder holds the pipeline output: rankings.json and prices.json.
+
+It is intentionally empty in the repo until the first pipeline run (local or via
+the "Refresh rankings" GitHub Action) writes the two JSON files and commits them.
+
+Do NOT commit the raw SimFin dataset here. SimFin's free tier is personal-use
+only and must not be redistributed; only the computed JSON belongs in this repo.
