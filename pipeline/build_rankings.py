@@ -170,21 +170,38 @@ def load_simfin_frames(cfg: Config) -> dict[str, pd.DataFrame]:
 # Assembly: raw SimFin frames -> one tidy row per company
 # ---------------------------------------------------------------------------
 
-def _latest_annual(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep the most recent statement per ticker (latest Report Date)."""
-    if "Report Date" in df.columns:
-        df = df.sort_values("Report Date")
-    return df.groupby("Ticker", as_index=False).tail(1)
+def _one_row_per_ticker(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse to a single row per ticker, keeping the latest dated row when a
+    date column is present. Statements date rows under 'Report Date', share
+    prices under 'Date'; metadata tables (e.g. companies) are undated and can
+    contain duplicate tickers in the SimFin bulk file."""
+    for date_col in ("Report Date", "Date"):
+        if date_col in df.columns:
+            df = df.sort_values(date_col)
+            break
+    return df.drop_duplicates(subset="Ticker", keep="last")
+
+
+def _col(df: pd.DataFrame, field: str) -> "pd.array":
+    """Positional values for a resolved field, decoupled from the source index."""
+    return df[_require(df, field, "source")].to_numpy()
 
 
 def assemble_tidy(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Join the SimFin datasets into the tidy one-row-per-company contract that
-    magic_formula.py expects. Soft fields are coerced (NaN -> 0); hard-required
-    fields are left as NaN for drop_missing_required to handle."""
-    income = _latest_annual(frames["income"])
-    balance = _latest_annual(frames["balance"])
-    prices = _latest_annual(frames["prices"])
-    companies = frames["companies"]
+    magic_formula.py expects.
+
+    Every source is first collapsed to one row per ticker, then the pieces are
+    combined with explicit merges on the ticker column (never index alignment),
+    so duplicate tickers in any single source cannot break the assembly. Soft
+    fields are coerced (NaN -> 0); hard-required fields are left as NaN for
+    drop_missing_required to handle. A company must have income, balance, and a
+    price to be evaluable (inner joins); company metadata is optional (left join).
+    """
+    income = _one_row_per_ticker(frames["income"])
+    balance = _one_row_per_ticker(frames["balance"])
+    prices = _one_row_per_ticker(frames["prices"])
+    companies = _one_row_per_ticker(frames["companies"])
     industries = frames["industries"]
 
     # --- sector / industry: prefer columns already on companies, else join ---
@@ -195,64 +212,65 @@ def assemble_tidy(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
         ind_id_i = _require(industries, "industry_id", "industries")
         keep_cols = [ind_id_i]
         for f in ("sector", "industry"):
-            c = resolve(industries, f)
-            if c:
-                keep_cols.append(c)
+            col = resolve(industries, f)
+            if col and col not in keep_cols:
+                keep_cols.append(col)
+        industries_dedup = industries.drop_duplicates(subset=ind_id_i, keep="last")
         companies = companies.merge(
-            industries[keep_cols], left_on=ind_id_c, right_on=ind_id_i, how="left"
+            industries_dedup[keep_cols],
+            left_on=ind_id_c, right_on=ind_id_i, how="left",
         )
+        companies = companies.drop_duplicates(subset="Ticker", keep="last")
         sector_col = resolve(companies, "sector")
         industry_col = resolve(companies, "industry")
 
-    name_col = _require(companies, "name", "companies")
+    name_col = resolve(companies, "name")  # display-only: fall back to ticker if absent
 
-    # income-statement fields
-    tidy = income[["Ticker"]].copy()
-    tidy.rename(columns={"Ticker": "ticker"}, inplace=True)
-    tidy["ebit"] = income[_require(income, "ebit", "income")].values
+    # --- one tidy sub-frame per source, built positionally, merged by ticker ---
+    inc = pd.DataFrame({"ticker": income["Ticker"].to_numpy()})
+    inc["ebit"] = _col(income, "ebit")
     fy_col = resolve(income, "fiscal_year")
-    tidy["fiscal_year"] = income[fy_col].values if fy_col else pd.NA
+    inc["fiscal_year"] = income[fy_col].to_numpy() if fy_col else pd.NA
     cur_col = resolve(income, "currency")
-    tidy["currency"] = income[cur_col].values if cur_col else "USD"
+    inc["currency"] = income[cur_col].to_numpy() if cur_col else "USD"
     sb_col = resolve(income, "shares_basic")
-    tidy["shares_basic"] = income[sb_col].values if sb_col else pd.NA
+    inc["shares_basic"] = income[sb_col].to_numpy() if sb_col else pd.NA
 
-    tidy = tidy.set_index("ticker")
+    bal = pd.DataFrame({"ticker": balance["Ticker"].to_numpy()})
+    bal["cur_assets"] = _col(balance, "cur_assets")
+    bal["cur_liab"] = _col(balance, "cur_liab")
+    bal["cash"] = _col(balance, "cash")
+    st_c = resolve(balance, "st_debt")
+    lt_c = resolve(balance, "lt_debt")
+    nfa_c = resolve(balance, "net_fixed_assets")
+    bal["st_debt"] = balance[st_c].to_numpy() if st_c else 0.0
+    bal["lt_debt"] = balance[lt_c].to_numpy() if lt_c else 0.0
+    bal["net_fixed_assets"] = balance[nfa_c].to_numpy() if nfa_c else 0.0
 
-    # balance-sheet fields
-    b = balance.set_index("Ticker")
-    tidy["cur_assets"] = b[_require(b, "cur_assets", "balance")]
-    tidy["cur_liab"] = b[_require(b, "cur_liab", "balance")]
-    tidy["cash"] = b[_require(b, "cash", "balance")]
-    st_c = resolve(b, "st_debt")
-    lt_c = resolve(b, "lt_debt")
-    nfa_c = resolve(b, "net_fixed_assets")
-    tidy["st_debt"] = b[st_c] if st_c else 0.0
-    tidy["lt_debt"] = b[lt_c] if lt_c else 0.0
-    tidy["net_fixed_assets"] = b[nfa_c] if nfa_c else 0.0
+    pr = pd.DataFrame({"ticker": prices["Ticker"].to_numpy()})
+    pr["price"] = _col(prices, "price")
+    so_c = resolve(prices, "shares_outstanding")
+    pr["shares_outstanding"] = prices[so_c].to_numpy() if so_c else pd.NA
 
-    # price + shares-outstanding from the latest price file
-    p = prices.set_index("Ticker")
-    tidy["price"] = p[_require(p, "price", "prices")]
-    so_c = resolve(p, "shares_outstanding")
-    tidy["shares_outstanding"] = p[so_c] if so_c else pd.NA
+    comp = pd.DataFrame({"ticker": companies["Ticker"].to_numpy()})
+    comp["name"] = companies[name_col].to_numpy() if name_col else comp["ticker"]
+    comp["sector"] = companies[sector_col].to_numpy() if sector_col else pd.NA
+    comp["industry"] = companies[industry_col].to_numpy() if industry_col else pd.NA
 
-    # company metadata
-    c = companies.set_index("Ticker")
-    tidy["name"] = c[name_col]
-    tidy["sector"] = c[sector_col] if sector_col else pd.NA
-    tidy["industry"] = c[industry_col] if industry_col else pd.NA
-
-    tidy = tidy.reset_index()
+    tidy = inc.merge(bal, on="ticker", how="inner")
+    tidy = tidy.merge(pr, on="ticker", how="inner")
+    tidy = tidy.merge(comp, on="ticker", how="left")
 
     # shares: prefer price-file shares outstanding, fall back to income basic
-    tidy["shares"] = tidy["shares_outstanding"].fillna(tidy["shares_basic"])
+    tidy["shares"] = pd.to_numeric(
+        tidy["shares_outstanding"], errors="coerce"
+    ).fillna(pd.to_numeric(tidy["shares_basic"], errors="coerce"))
 
     # coerce soft fields (missing debt / PP&E => none of it)
     for col in mf.SOFT_ZERO_COLS:
         tidy[col] = pd.to_numeric(tidy[col], errors="coerce").fillna(0.0)
 
-    # numeric coercion for the rest
+    # numeric coercion for hard-required fields + fiscal year
     for col in (
         "ebit", "cur_assets", "cur_liab", "cash", "price", "shares", "fiscal_year",
     ):
