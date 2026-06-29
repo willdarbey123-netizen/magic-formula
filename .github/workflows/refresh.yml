@@ -24,8 +24,6 @@ jobs:
         env:
           SIMFIN_API_KEY: ${{ secrets.SIMFIN_API_KEY }}
         run: python pipeline/build_rankings.py
-      - name: Update rank history
-        run: python pipeline/update_history.py
       - name: Publish data to GitHub Pages
         run: |
           mkdir -p docs
